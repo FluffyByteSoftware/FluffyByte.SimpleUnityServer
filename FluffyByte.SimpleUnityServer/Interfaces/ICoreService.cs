@@ -5,11 +5,18 @@
     using System.Linq;
     using System.Text;
     using System.Threading.Tasks;
+    using FluffyByte.SimpleUnityServer.Enums;
 
     internal interface ICoreService
     {
-        Task Start();
-        Task Stop();
+        string Name { get; }
+
+        CancellationToken CancelToken { get; }
+
+        Task StartAsync();
+        Task StopAsync();
+
+        Task<CoreServiceStatus> Status();
         
     }
 }

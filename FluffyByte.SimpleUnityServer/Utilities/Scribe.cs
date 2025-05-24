@@ -1,4 +1,4 @@
-﻿namespace FluffyByte.SimpleUnityserver.Utilities
+﻿namespace FluffyByte.SimpleUnityServer.Utilities
 {
     using System.Runtime.CompilerServices;
     using System.Threading;
@@ -92,6 +92,17 @@
             await LogAsync(formatted, file, line, MessageType.Error);
         }
 
+        public static async Task ErrorAsync(string message,
+            [CallerFilePath] string file = "",
+            [CallerLineNumber] int line = 0)
+        {
+            string formatted =
+                $"[ {TimeStamp} ERROR in {Path.GetFileName(file)}, line {line} ] " +
+                $"[ Message: {message} ]";
+            
+            await LogAsync(formatted, file, line, MessageType.Error);
+        }
+
 
         public static async Task DebugAsync(string message,
             [CallerFilePath] string file = "",
@@ -137,6 +148,13 @@
                 MessageType.Debug => WriteColor,
                 _ => WriteColor,
             };
+        }
+
+        public static Task ClearConsole()
+        {
+            Console.Clear();
+
+            return Task.CompletedTask;
         }
     }
 }
