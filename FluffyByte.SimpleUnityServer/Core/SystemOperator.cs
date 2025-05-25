@@ -47,7 +47,7 @@
                         await Scribe.WriteAsync($"ICoreService: {service.Name} - Starting...");
                         await service.StartAsync();
                         _listOfRunningServices.Add(service);
-                        await Scribe.WriteAsync($"ICoreService: {service.Name} - Started");
+                        await Scribe.WriteAsync($"ICoreService: {service.Name} - Started.");
                         ServiceStarted?.Invoke();
                     }
                     catch (Exception ex)
@@ -116,7 +116,7 @@
             {
                 try
                 {
-                    CoreServiceStatus status = await service.Status();
+                    CoreServiceStatus status = service.Status;
                     await Scribe.WriteAsync($"{service.Name} - {status}");
                 }
                 catch (Exception ex)

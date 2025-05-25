@@ -1,5 +1,8 @@
-﻿namespace FluffyByte.SimpleUnityServer.Utilities
+﻿// Polished Scribe.cs: Robust, async-friendly, thread-safe logger for console applications
+namespace FluffyByte.SimpleUnityServer.Utilities
 {
+    using System;
+    using System.IO;
     using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Channels;
@@ -15,20 +18,22 @@
 
     public static class Scribe
     {
-        public readonly static bool EnableDebugFlag = true;
-
-        private readonly static ConsoleColor WarningColor = ConsoleColor.Yellow;
-        private readonly static ConsoleColor ErrorColor = ConsoleColor.Red;
-        private readonly static ConsoleColor InfoColor = ConsoleColor.Green;
-        private readonly static ConsoleColor WriteColor = ConsoleColor.Gray;
-        private readonly static Lock _lockObj = new();
-        private readonly static Channel<(string message, string file, int line, MessageType type)> _logChannel = Channel.CreateUnbounded<(string, string, int, MessageType)>();
+        public static readonly bool EnableDebugFlag = true;
+        private static readonly ConsoleColor WarningColor = ConsoleColor.Yellow;
+        private static readonly ConsoleColor ErrorColor = ConsoleColor.Red;
+        private static readonly ConsoleColor InfoColor = ConsoleColor.Green;
+        private static readonly ConsoleColor DebugColor = ConsoleColor.Cyan;
+        private static readonly ConsoleColor WriteColor = ConsoleColor.Gray;
+        private static readonly Lock _lockObj = new();
+        private static readonly Channel<(string message, string file, int line, MessageType type)> _logChannel = Channel.CreateUnbounded<(string, string, int, MessageType)>();
 
         static Scribe()
         {
-            Task.Run(ProcessLogQueueAsync);
+            // Fire-and-forget background logging processor
+            _ = Task.Run(ProcessLogQueueAsync);
         }
 
+        // === SYNC LOGGING API ===
         public static void Write(string message,
             [CallerFilePath] string file = "",
             [CallerLineNumber] int line = 0) =>
@@ -45,23 +50,20 @@
         {
             lock (_lockObj)
             {
-                Console.ForegroundColor = ErrorColor;
-                Console.WriteLine($"[ {TimeStamp} EXCEPTION in {Path.GetFileName(file)}, line {line} ]");
-                Console.WriteLine($"[ Message: {ex.Message} ]");
-                Console.WriteLine($"StackTrace: {ex.StackTrace}");
+                SetColor(MessageType.Error);
+                string formatted =
+                    $"[ {TimeStamp} EXCEPTION in {Path.GetFileName(file)}, line {line} ]\n" +
+                    $"[ Message: {ex.Message} ]\n" +
+                    $"StackTrace: {ex.StackTrace}";
+                Console.WriteLine(formatted);
                 Console.ResetColor();
             }
         }
 
         public static void Error(string message,
             [CallerFilePath] string file = "",
-            [CallerLineNumber] int line = 0)
-        {
-            lock (_lockObj)
-            {
-                Log(message, file, line, MessageType.Error);
-            }
-        }
+            [CallerLineNumber] int line = 0) =>
+            Log(message, file, line, MessageType.Error);
 
         public static void Debug(string message,
             [CallerFilePath] string file = "",
@@ -71,56 +73,73 @@
                 Log(message, file, line, MessageType.Debug);
         }
 
-        public static async Task WriteAsync(string message,
+        // === ASYNC LOGGING API ===
+        public static Task WriteAsync(string message,
             [CallerFilePath] string file = "",
             [CallerLineNumber] int line = 0) =>
-            await LogAsync(message, file, line, MessageType.Info);
+            LogAsync(message, file, line, MessageType.Info);
 
-        public static async Task WarnAsync(string message,
+        public static Task WarnAsync(string message,
             [CallerFilePath] string file = "",
             [CallerLineNumber] int line = 0) =>
-            await LogAsync(message, file, line, MessageType.Warning);
+            LogAsync(message, file, line, MessageType.Warning);
 
         public static async Task ErrorAsync(Exception ex,
             [CallerFilePath] string file = "",
             [CallerLineNumber] int line = 0)
         {
-            string formatted =
+            var formatted =
                 $"[ {TimeStamp} EXCEPTION in {Path.GetFileName(file)}, line {line} ]\n" +
                 $"[ Message: {ex.Message} ]\n" +
                 $"StackTrace: {ex.StackTrace}";
             await LogAsync(formatted, file, line, MessageType.Error);
         }
 
-        public static async Task ErrorAsync(string message,
+        public static Task ErrorAsync(string message,
             [CallerFilePath] string file = "",
             [CallerLineNumber] int line = 0)
         {
-            string formatted =
-                $"[ {TimeStamp} ERROR in {Path.GetFileName(file)}, line {line} ] " +
-                $"[ Message: {message} ]";
-            
-            await LogAsync(formatted, file, line, MessageType.Error);
+            var formatted =
+                $"[ {TimeStamp} ERROR in {Path.GetFileName(file)}, line {line} ] [ Message: {message} ]";
+            return LogAsync(formatted, file, line, MessageType.Error);
         }
 
-
-        public static async Task DebugAsync(string message,
+        public static Task DebugAsync(string message,
             [CallerFilePath] string file = "",
             [CallerLineNumber] int line = 0)
         {
             if (EnableDebugFlag)
-                await LogAsync(message, file, line, MessageType.Debug);
+                return LogAsync(message, file, line, MessageType.Debug);
+            return Task.CompletedTask;
         }
 
-        public static string TimeStamp => DateTime.Now.ToString("yyyy-dd-MM hh:mm:ss.fff");
+        // === SUPPORT ===
+        /// <summary>
+        /// Writes a plain, unformatted message directly to the console. No colors, no prefixes, not queued.
+        /// </summary>
+        public static Task WriteCleanAsync(string message)
+        {
+            Console.WriteLine(message);
+            return Task.CompletedTask;
+        }
+
+        public static string TimeStamp => DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
 
         private static void Log(string message, string file, int line, MessageType messageType)
         {
             lock (_lockObj)
             {
                 SetColor(messageType);
-                Console.WriteLine($"[ Object: {Path.GetFileName(file)} at line: {line}]");
-                Console.WriteLine($"[{TimeStamp} - {messageType.ToString().ToUpper()} ]: {message}");
+                if (messageType == MessageType.Error && message.Contains("EXCEPTION"))
+                {
+                    // Multi-line for full exceptions
+                    Console.WriteLine(message);
+                }
+                else
+                {
+                    // Single line log: [Timestamp][TYPE][File:Line] Message
+                    Console.WriteLine($"[{TimeStamp}] [{messageType.ToString().ToUpper()}] [{Path.GetFileName(file)}:{line}] {message}");
+                }
                 Console.ResetColor();
             }
         }
@@ -145,15 +164,17 @@
                 MessageType.Info => InfoColor,
                 MessageType.Warning => WarningColor,
                 MessageType.Error => ErrorColor,
-                MessageType.Debug => WriteColor,
+                MessageType.Debug => DebugColor,
                 _ => WriteColor,
             };
         }
 
         public static Task ClearConsole()
         {
-            Console.Clear();
-
+            lock (_lockObj)
+            {
+                Console.Clear();
+            }
             return Task.CompletedTask;
         }
     }

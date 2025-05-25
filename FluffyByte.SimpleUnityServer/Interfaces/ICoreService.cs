@@ -16,7 +16,7 @@
         Task StartAsync();
         Task StopAsync();
 
-        Task<CoreServiceStatus> Status();
+        CoreServiceStatus Status { get; }
         
     }
 }
