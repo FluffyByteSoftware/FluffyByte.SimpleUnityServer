@@ -10,9 +10,9 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
     using FluffyByte.SimpleUnityServer.Interfaces;
     using FluffyByte.SimpleUnityServer.Utilities;
 
-    internal class NetworkManager : IHelper
+    internal class NetworkManager : CoreServiceTemplate
     {
-        public string Name => "NetworkManager";
+        public override string Name => "NetworkManager";
         public Guid Guid { get; private set; } = Guid.NewGuid();
 
         public ThreadSafeList<GameClient> ConnectedClients { get; private set; } = [];

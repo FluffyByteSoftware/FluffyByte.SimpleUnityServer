@@ -12,6 +12,7 @@
     using FluffyByte.SimpleUnityServer.Game.Managers;
     using FluffyByte.SimpleUnityServer.Interfaces;
     using FluffyByte.SimpleUnityServer.Utilities;
+    using System.Diagnostics;
 
     internal class GameClient : IDisposable, ITickable
     {
@@ -35,7 +36,7 @@
         private readonly string clientListPrefixText = "INCOMING_CLIENT_OBJECT_LIST";
         private readonly string serverListPrefixText = "INCOMING_SERVER_OBJECT_LIST";
         private readonly string clientRequestObjectListText = "REQUEST_CLIENT_OBJECT_LIST";
-        private readonly string serverRequestObjectListText = "REQUEST_SERVER_OBJECT_LIST";
+        //private readonly string serverRequestObjectListText = "REQUEST_SERVER_OBJECT_LIST";
 
         private readonly Queue<string> _messagesToSend = new();
         private const int MaxQueueSize = 10;
@@ -92,17 +93,43 @@
             try
             {
                 await Scribe.DebugAsync($"Ticking GameClient...");
+
                 LastHeartbeat = DateTime.Now;
 
-                if (TcpSocket.Connected)
+                if((DateTime.Now - LastResponseTime).TotalSeconds > 2)
                 {
-                    await FlushOutgoingMessages();
-                    QueueTextMessage(clientRequestObjectListText); // Enqueue the request to be sent next tick
+                    await Scribe.WarnAsync($"{Name}: No response from client in over 2 seconds.");
+                    await RequestDisconnect();
+
+                    return;
                 }
+
+                if(!IsSocketConnected())
+                {
+                    await RequestDisconnect();
+                    return;
+                }
+
+                await FlushOutgoingMessages();
+                QueueTextMessage(clientRequestObjectListText);
             }
             catch
             {
                 await RequestDisconnect();
+            }
+        }
+
+        public bool IsSocketConnected()
+        {
+            try
+            {
+                bool check = TcpSocket.Poll(1000, SelectMode.SelectRead) && (TcpSocket.Available == 0);
+
+                return !check;
+            }
+            catch
+            {
+                return false;
             }
         }
 
@@ -140,7 +167,7 @@
             }
             catch (IOException)
             {
-                await Scribe.ErrorAsync($"[{Name}] Lost connection to client.");
+                await Scribe.WarnAsync($"[{Name}] Lost connection to client.");
                 await RequestDisconnect();
             }
             catch (Exception ex)
@@ -186,8 +213,12 @@
             if (_disconnecting)
                 return;
 
+
+            SystemOperator.Instance.HeartbeatManager.Unregister(this);
+
             _disconnecting = true;
             OnDisconnect?.Invoke(this, EventArgs.Empty);
+
             await CloseForDisposal();
         }
 
@@ -197,7 +228,7 @@
             GC.SuppressFinalize(this);
         }
 
-        public bool IsConnected => TcpSocket?.Connected ?? false;
+        public bool IsConnected => TcpSocket != null && IsSocketConnected();
 
         protected virtual void Dispose(bool disposing)
         {
@@ -217,10 +248,6 @@
         {
             try
             {
-                if (TcpSocket.Connected)
-                {
-                    try { await TcpSocket.DisconnectAsync(false); } catch { }
-                }
                 TcpSocket?.Close();
             }
             catch (Exception ex)
@@ -241,6 +268,7 @@
                 try
                 {
                     var clientObjects = GameObjectManager.ParseObjectList(payload);
+
                     LastResponseTime = DateTime.Now;
                     // Compare or process as needed
                 }

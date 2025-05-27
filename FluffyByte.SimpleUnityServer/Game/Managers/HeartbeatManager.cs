@@ -20,7 +20,17 @@
 
         public void Register(ITickable tickable)
         {
+            Scribe.Debug($"Registering {tickable.Name} to HeartbeatManager.");
             _tickables.Add(tickable);
+        }
+
+        public void Unregister(ITickable tickable)
+        {
+            _tickables.Remove(tickable);
+
+            int tickCount = _tickables.Count;
+
+            Scribe.Debug($"Unregistered {tickable} from HeartbeatManager. Current count: {tickCount}");
         }
 
         protected override async Task OnStartAsync()
@@ -39,15 +49,12 @@
         {
             while (!CancelToken.IsCancellationRequested)
             {
-                await Scribe.WriteAsync("Ticking all children...");
-
                 foreach (ITickable tickable in _tickables.ToArray())
                     tickable.Tick();
 
+                await Scribe.DebugAsync($"HeartbeatManager ticked {_tickables.Count} objects.");
                 await Task.Delay(_tickIntervalMs, CancelToken);
             }
         }
-
     }
-
 }

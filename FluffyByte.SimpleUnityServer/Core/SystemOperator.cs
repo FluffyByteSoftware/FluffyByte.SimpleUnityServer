@@ -4,6 +4,7 @@
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading.Tasks;
+    using FluffyByte.SimpleUnityServer.Core.Network;
     using FluffyByte.SimpleUnityServer.Enums;
     using FluffyByte.SimpleUnityServer.Game.Managers;
     using FluffyByte.SimpleUnityServer.Interfaces;
@@ -25,6 +26,7 @@
         public readonly Sentinel Sentinel = new();
         public readonly HeartbeatManager HeartbeatManager = new();
         public readonly GameObjectManager GameObjectManager = new();
+        public readonly NetworkManager NetworkManager = new();
 
         public event Action? ServiceStarted;
         public event Action? ServiceStopped;
@@ -46,6 +48,7 @@
                 ListOfCoreServices.Add(Sentinel);
                 ListOfCoreServices.Add(HeartbeatManager);
                 ListOfCoreServices.Add(GameObjectManager);
+                ListOfCoreServices.Add(NetworkManager);
 
                 Status = CoreServiceStatus.Starting;
                 // Take a snapshot to avoid concurrency issues during iteration
@@ -103,6 +106,8 @@
                     _listOfRunningServices.Remove(service);
                     await Scribe.WriteAsync($"ICoreService: {service.Name} - Stopped.");
                     ServiceStopped?.Invoke();
+
+                    ClearLists();
                 }
                 catch (Exception ex)
                 {
@@ -136,6 +141,12 @@
                 }
             }
             await Scribe.WriteAsync($"Services Running: {_listOfRunningServices.Count} / {ListOfCoreServices.Count}");
+        }
+
+        private void ClearLists()
+        {
+            ListOfCoreServices.Clear();
+            _listOfRunningServices.Clear();
         }
     }
 }

@@ -9,7 +9,6 @@ using FluffyByte.SimpleUnityServer.Utilities;
 internal class Sentinel : CoreServiceTemplate
 {
     public override string Name { get; } = "Sentinel";
-    public NetworkManager Manager { get; private set; } = new();
     public TcpListener Listener { get; private set; } = new(IPAddress.Parse("10.0.0.84"), 9998);
 
     public Sentinel() : base() { }
@@ -71,8 +70,18 @@ internal class Sentinel : CoreServiceTemplate
                     }
 
                     SystemOperator.Instance.HeartbeatManager.Register(client);
+                    SystemOperator.Instance.NetworkManager.ConnectedClients.Add(client);
 
-                    await Manager.AddConnectedClient(client);
+                    client.OnDisconnect += (sender, args) =>
+                    {
+                        Scribe.Debug($"OnDisconnect fired for client {client.Name}");
+
+                        SystemOperator.Instance.HeartbeatManager.Unregister(client);
+
+                        SystemOperator.Instance.NetworkManager.ConnectedClients.Remove(client);
+                    };
+
+                    
                     
                     _ = HandleClientCommunication(client);
                 }

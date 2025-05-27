@@ -26,9 +26,12 @@
         private static readonly Lock _lockObj = new();
         private static readonly Channel<(string message, string file, int line, MessageType type)> _logChannel = Channel.CreateUnbounded<(string, string, int, MessageType)>();
 
+        private readonly static string _logFilePath = $@"E://FluffyByte/SimpleUnityServer/server.log";
+        private readonly static StreamWriter _writer = new(_logFilePath, true);
+
         static Scribe()
         {
-            // Fire-and-forget background logging processor
+            // Start background logging processor
             _ = Task.Run(ProcessLogQueueAsync);
         }
 
@@ -56,6 +59,9 @@
                     $"StackTrace: {ex.StackTrace}";
                 Console.WriteLine(formatted);
                 Console.ResetColor();
+                // Also log to file
+                _writer.WriteLine(formatted);
+                _writer.Flush();
             }
         }
 
@@ -115,6 +121,8 @@
         public static Task WriteCleanAsync(string message)
         {
             Console.WriteLine(message);
+            _writer.WriteLine(message);
+            _writer.Flush();
             return Task.CompletedTask;
         }
 
@@ -125,15 +133,12 @@
             lock (_lockObj)
             {
                 SetColor(messageType);
-                if (messageType == MessageType.Error && message.Contains("EXCEPTION"))
-                {
-                    Console.WriteLine(message);
-                }
-                else
-                {
-                    Console.WriteLine($"[{TimeStamp}] [{messageType.ToString().ToUpper()}] [{Path.GetFileName(file)}:{line}] {message}");
-                }
+                string formatted = $"[{TimeStamp}] [{messageType.ToString().ToUpper()}] [{Path.GetFileName(file)}:{line}] {message}";
+                Console.WriteLine(formatted);
                 Console.ResetColor();
+                // Log to file
+                _writer.WriteLine(formatted);
+                _writer.Flush();
             }
         }
 

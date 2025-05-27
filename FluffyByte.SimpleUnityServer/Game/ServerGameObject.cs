@@ -62,7 +62,7 @@
                 CurrentRotation = new Quaternion(
                     float.Parse(tokens[5]), 
                     float.Parse(tokens[6]), 
-                    float.Parse(tokens[7]), 
+                    float.Parse(tokens[7]),
                     float.Parse(tokens[8])
                 )
             };
@@ -71,7 +71,7 @@
         public override string ToString()
         {
             return $"ServerGameObject: {Name} (ID: {Id}, Guid: {Guid}) at Position: {CurrentPosition}, " +
-                "Rotation: {CurrentRotation}, Movement Speed: {CurrentMovementSpeed}, Rotation Speed: {CurrentRotationSpeed}";
+                $"Rotation: {CurrentRotation}, Movement Speed: {CurrentMovementSpeed}, Rotation Speed: {CurrentRotationSpeed}";
         }
 
         
