@@ -20,9 +20,9 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
         private bool _disconnecting = false;
         private bool _disposed = false;
 
-        private readonly NetworkStream _tcpStream;
-        private readonly StreamReader _tcpStreamReader;
-        private readonly StreamWriter _tcpStreamWriter;
+        public readonly NetworkStream TcpStream;
+        public readonly StreamReader TcpStreamReader;
+        public readonly StreamWriter TcpStreamWriter;
 
         public DateTime FirstConnectedTime { get; private set; }
         public DateTime LastResponseTime { get; private set; }
@@ -38,9 +38,9 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
                 FirstConnectedTime = DateTime.Now;
                 LastResponseTime = DateTime.Now;
 
-                _tcpStream = new NetworkStream(TcpSocket, ownsSocket: false);
-                _tcpStreamReader = new StreamReader(_tcpStream, Encoding.UTF8);
-                _tcpStreamWriter = new StreamWriter(_tcpStream, Encoding.UTF8) { AutoFlush = true };
+                TcpStream = new NetworkStream(TcpSocket, ownsSocket: false);
+                TcpStreamReader = new StreamReader(TcpStream, Encoding.UTF8);
+                TcpStreamWriter = new StreamWriter(TcpStream, Encoding.UTF8) { AutoFlush = true };
 
                 Scribe.Write($"Successful construction of new GameClient: {Name}");
             }
@@ -60,13 +60,13 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
         {
             try
             {
-                if (_tcpStreamWriter == null)
+                if (TcpStreamWriter == null)
                 {
                     await Scribe.WarnAsync($"[{Name}] Attempted to send message on closed stream.");
                     return;
                 }
-                await _tcpStreamWriter.WriteLineAsync(message);
-                await _tcpStreamWriter.FlushAsync();
+                await TcpStreamWriter.WriteLineAsync(message);
+                await TcpStreamWriter.FlushAsync();
             }
             catch (IOException)
             {
@@ -82,7 +82,7 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
 
         public async Task<string> ReceiveTextMessage()
         {
-            if (_tcpStreamReader == null)
+            if (TcpStreamReader == null)
             {
                 await RequestDisconnect();
                 return string.Empty;
@@ -90,7 +90,7 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
 
             try
             {
-                string? response = await _tcpStreamReader.ReadLineAsync();
+                string? response = await TcpStreamReader.ReadLineAsync();
 
                 response ??= string.Empty;
 
@@ -133,9 +133,9 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
                 return;
             if (disposing)
             {
-                try { _tcpStreamReader?.Dispose(); } catch { }
-                try { _tcpStreamWriter?.Dispose(); } catch { }
-                try { _tcpStream?.Dispose(); } catch { }
+                try { TcpStreamReader?.Dispose(); } catch { }
+                try { TcpStreamWriter?.Dispose(); } catch { }
+                try { TcpStream?.Dispose(); } catch { }
                 try { TcpSocket?.Dispose(); } catch { }
             }
             _disposed = true;

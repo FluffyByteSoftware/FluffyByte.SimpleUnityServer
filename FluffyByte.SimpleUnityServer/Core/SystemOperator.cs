@@ -21,6 +21,8 @@
         // Tracks running services for stop/status
         private readonly ThreadSafeList<ICoreService> _listOfRunningServices = [];
 
+        public readonly Sentinel _sentinel = new();
+
         public event Action? ServiceStarted;
         public event Action? ServiceStopped;
         public event Action? ServiceErrored;
@@ -37,6 +39,8 @@
 
             try
             {
+                ListOfCoreServices.Add(_sentinel);
+
                 Status = CoreServiceStatus.Starting;
                 // Take a snapshot to avoid concurrency issues during iteration
                 var coreServicesSnapshot = ListOfCoreServices.ToArray();
@@ -44,10 +48,10 @@
                 {
                     try
                     {
-                        await Scribe.WriteAsync($"ICoreService: {service.Name} - Starting...");
+                        await Scribe.DebugAsync($"ICoreService: {service.Name} - Starting...");
                         await service.StartAsync();
                         _listOfRunningServices.Add(service);
-                        await Scribe.WriteAsync($"ICoreService: {service.Name} - Started.");
+                        await Scribe.DebugAsync($"ICoreService: {service.Name} - Started.");
                         ServiceStarted?.Invoke();
                     }
                     catch (Exception ex)
