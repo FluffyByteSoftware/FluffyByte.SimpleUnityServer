@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Numerics;
 using System.Reflection;
 using System.Text;
 using System.Threading.Tasks;
@@ -13,10 +14,10 @@ namespace FluffyByte.SimpleUnityServer.Game.Managers
     {
         public override string Name => "GameObjectManager";
 
-        private readonly List<ServerGameObject> _objects = [];
-        
-        public void Add(ServerGameObject obj) => _objects.Add(obj);
-        public void Remove(ServerGameObject obj) => _objects.Remove(obj);
+        private readonly ThreadSafeList<ServerGameObject> _objects = [];
+
+        public void RegisterObject(ServerGameObject obj) => _objects.Add(obj);
+        public void UnregisterObject(ServerGameObject obj) => _objects.Remove(obj);
 
         public IEnumerable<ServerGameObject> AllObjects => _objects;
 

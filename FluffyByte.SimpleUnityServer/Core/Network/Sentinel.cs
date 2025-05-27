@@ -105,9 +105,14 @@ internal class Sentinel : CoreServiceTemplate
         {
             client.QueueTextMessage("Welcome.");
 
-            while (client.IsConnected)
+            while (client.IsConnected && (client.LastResponseTime - DateTime.Now).TotalSeconds < 2)
             {
                 string message = await client.ReceiveTextMessage();
+                
+                if(string.IsNullOrWhiteSpace(message))
+                {
+                    continue;
+                }
 
                 if (message[0] == '/')
                 {
@@ -127,7 +132,13 @@ internal class Sentinel : CoreServiceTemplate
                             break;
                     }
                 }
+                else
+                {
+                    await client.OnMessageReceived(message);
+                }
             }
+
+            await client.RequestDisconnect();
         }
         catch (Exception ex)
         {

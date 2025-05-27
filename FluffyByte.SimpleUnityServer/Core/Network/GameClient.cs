@@ -2,17 +2,19 @@
 {
 
     using System;
+    using System.Collections.Generic;
+    using System.ComponentModel.DataAnnotations;
+    using System.Diagnostics;
     using System.IO;
     using System.Net;
     using System.Net.Sockets;
     using System.Text;
+    using System.Threading;
     using System.Threading.Tasks;
-    using System.Collections.Generic;
     using FluffyByte.SimpleUnityServer.Game;
     using FluffyByte.SimpleUnityServer.Game.Managers;
     using FluffyByte.SimpleUnityServer.Interfaces;
     using FluffyByte.SimpleUnityServer.Utilities;
-    using System.Diagnostics;
 
     internal class GameClient : IDisposable, ITickable
     {
@@ -29,6 +31,8 @@
         public readonly StreamReader TcpStreamReader;
         public readonly StreamWriter TcpStreamWriter;
 
+        public const int TIMEOUT = 5;
+
         public DateTime FirstConnectedTime { get; private set; }
         public DateTime LastResponseTime { get; private set; }
         public DateTime LastHeartbeat { get; private set; }
@@ -36,7 +40,6 @@
         private readonly string clientListPrefixText = "INCOMING_CLIENT_OBJECT_LIST";
         private readonly string serverListPrefixText = "INCOMING_SERVER_OBJECT_LIST";
         private readonly string clientRequestObjectListText = "REQUEST_CLIENT_OBJECT_LIST";
-        //private readonly string serverRequestObjectListText = "REQUEST_SERVER_OBJECT_LIST";
 
         private readonly Queue<string> _messagesToSend = new();
         private const int MaxQueueSize = 10;
@@ -82,29 +85,28 @@
                     return false;
                 }
                 _messagesToSend.Enqueue(message);
-                
+
                 return true;
             }
         }
 
         // Called every server tick (HeartbeatManager), sends all queued messages this tick
-        public async void Tick()
+        public async Task Tick()
         {
+            
+            if(!IsConnected)
+            {
+                await RequestDisconnect();
+                return;
+            }
+
             try
             {
                 await Scribe.DebugAsync($"Ticking GameClient...");
 
                 LastHeartbeat = DateTime.Now;
 
-                if((DateTime.Now - LastResponseTime).TotalSeconds > 2)
-                {
-                    await Scribe.WarnAsync($"{Name}: No response from client in over 2 seconds.");
-                    await RequestDisconnect();
-
-                    return;
-                }
-
-                if(!IsSocketConnected())
+                if (!await IsSocketConnected())
                 {
                     await RequestDisconnect();
                     return;
@@ -119,12 +121,34 @@
             }
         }
 
-        public bool IsSocketConnected()
+        public async Task<bool> IsSocketConnected()
         {
             try
             {
                 bool check = TcpSocket.Poll(1000, SelectMode.SelectRead) && (TcpSocket.Available == 0);
 
+                if ((DateTime.Now - LastResponseTime).TotalSeconds > TIMEOUT)
+                {
+                    byte[] buffer = new byte[1];
+                    try
+                    {
+                        if (TcpSocket.Available > 0)
+                        {
+                            int read = TcpSocket.Receive(buffer, 0, 1, SocketFlags.Peek);
+                        }
+                        else
+                        {
+                            TcpSocket.Receive(buffer, 0, 0, SocketFlags.None);
+                        }
+
+                    }
+                    catch (Exception)
+                    {
+                        await Scribe.WarnAsync($"[Tick] socket dead on {Name}");
+
+                        return false;
+                    }
+                }
                 return !check;
             }
             catch
@@ -228,7 +252,25 @@
             GC.SuppressFinalize(this);
         }
 
-        public bool IsConnected => TcpSocket != null && IsSocketConnected();
+        public bool IsConnected
+        {
+            get
+            {
+                if (TcpSocket == null || _disposed || _disconnecting)
+                    return false;
+
+                try
+                {
+                    // Poll for read with zero timeout to check connection
+                    return !(TcpSocket.Poll(1, SelectMode.SelectRead) && TcpSocket.Available == 0);
+                }
+                catch
+                {
+                    return false;
+                }
+            }
+        }
+
 
         protected virtual void Dispose(bool disposing)
         {
@@ -261,21 +303,29 @@
         {
             string messageStart = message.Split('\n')[0].Trim();
 
+
             if (messageStart == clientListPrefixText)
             {
                 string payload = message[clientListPrefixText.Length..].Trim();
 
                 try
                 {
-                    var clientObjects = GameObjectManager.ParseObjectList(payload);
+                    List<ServerGameObject> clientObjects = await GameObjectManager.ParseObjectList(payload);
 
-                    LastResponseTime = DateTime.Now;
                     // Compare or process as needed
+
+                    foreach (ServerGameObject sobj in clientObjects)
+                    {
+                        await Scribe.WriteAsync($"Serialized Client Object: {sobj.Name}");
+                    }
+
                 }
                 catch (Exception ex)
                 {
                     await Scribe.ErrorAsync(ex);
                 }
+
+                await SendClientTheServerList();
             }
             else if (messageStart == serverListPrefixText)
             {
@@ -288,8 +338,6 @@
                     // For a full overwrite:
                     SystemOperator.Instance.GameObjectManager.DeSerializeAllObjects(payload);
 
-                    LastResponseTime = DateTime.Now;
-
                     await Scribe.DebugAsync("Received and applied authoritative server object list.");
                 }
                 catch (Exception ex)
@@ -300,8 +348,17 @@
 
         }
 
+        private async Task SendClientTheServerList()
+        {
+            string response = SystemOperator.Instance.GameObjectManager.SerializeAllObjects();
+
+            QueueTextMessage(response);
+
+            await Task.CompletedTask;
+        }
+
         // Not yet used: for pushing server objects to client
-        public void SendServerObjectList()
+        public void SendServerMyObjectList()
         {
             StringBuilder sb = new();
             sb.AppendLine(serverListPrefixText);

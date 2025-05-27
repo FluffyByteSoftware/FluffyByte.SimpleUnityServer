@@ -44,17 +44,41 @@
         {
             await Task.CompletedTask;
         }
-
         private async Task TickLoop()
         {
-            while (!CancelToken.IsCancellationRequested)
+            try
             {
-                foreach (ITickable tickable in _tickables.ToArray())
-                    tickable.Tick();
+                while (!CancelToken.IsCancellationRequested)
+                {
+                    if (_tickables.Count == 0)
+                    {
+                        await Scribe.WriteAsync("Nothing to tick.");
+                        await Task.Delay(_tickIntervalMs, CancelToken);
+                        continue; // skip to next iteration, don't return!
+                    }
 
-                await Scribe.DebugAsync($"HeartbeatManager ticked {_tickables.Count} objects.");
-                await Task.Delay(_tickIntervalMs, CancelToken);
+
+                    foreach (ITickable tickable in _tickables.ToArray())
+                    {
+                        try
+                        {
+                            Scribe.Debug($"SEnding tick to {tickable.Name}");
+
+                            await tickable.Tick();
+                        }
+                        catch (Exception ex)
+                        {
+                            await Scribe.ErrorAsync($"Tick exception: {ex}");
+                        }
+                    }
+                    await Task.Delay(_tickIntervalMs, CancelToken);
+                }
+            }
+            catch(Exception ex)
+            {
+                await Scribe.ErrorAsync(ex);
             }
         }
+
     }
 }
