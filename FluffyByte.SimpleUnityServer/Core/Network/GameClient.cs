@@ -3,8 +3,11 @@ using System;
 using System.IO;
 using System.Net;
 using System.Net.Sockets;
+using System.Runtime.CompilerServices;
 using System.Text;
 using System.Threading.Tasks;
+using FluffyByte.SimpleUnityServer.Game;
+using FluffyByte.SimpleUnityServer.Game.Managers;
 using FluffyByte.SimpleUnityServer.Interfaces;
 using FluffyByte.SimpleUnityServer.Utilities;
 using Microsoft.VisualBasic;
@@ -30,6 +33,10 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
         public DateTime LastResponseTime { get; private set; }
         public DateTime LastHeartbeat { get; private set; }
 
+        private readonly string clientListPrefixText = "INCOMING_CLIENT_OBJECT_LIST";
+        private readonly string serverListPrefixText = "INCOMING_SERVER_OBJECT_LIST";
+        private readonly string clientRequestObjectListText = "REQUEST_CLIENT_OBJECT_LIST";
+        private readonly string serverRequestObjectListText = "REQUEST_SERVER_OBJECT_LIST";
 
         public event EventHandler? OnDisconnect;
 
@@ -163,6 +170,7 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
             }
         }
 
+        // Called every server tick (HeartbeatManager)
         public async void Tick()
         {
             try
@@ -170,14 +178,77 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
                 await Scribe.DebugAsync($"Ticking GameClient...");
                 LastHeartbeat = DateTime.Now;
 
-                await SendTextMessage("Heartbeat");
+                if (TcpSocket.Connected)
+                {
+                    await RequestClientObjectList();
+                }
             }
             catch
             {
                 await RequestDisconnect();
             }
-            
         }
-        
+
+        // Requests the client to send its object list
+        private async Task RequestClientObjectList()
+        {
+            await SendTextMessage(clientRequestObjectListText);
+        }
+
+        // Handles incoming messages
+        public async Task OnMessageReceived(string message)
+        {
+            string messageStart = message.Split('\n')[0].Trim();
+
+            if (messageStart == clientListPrefixText)
+            {
+                string payload = message[clientListPrefixText.Length..].Trim();
+
+                try
+                {
+                    var clientObjects = GameObjectManager.ParseObjectList(payload);
+                    LastResponseTime = DateTime.Now;
+                    // Compare or process as needed
+                }
+                catch (Exception ex)
+                {
+                    await Scribe.ErrorAsync(ex);
+                }
+            }
+            else if (messageStart == serverListPrefixText)
+            {
+                string payload = message[serverListPrefixText.Length..].Trim();
+
+                try
+                {
+                    var serverObjects = GameObjectManager.ParseObjectList(payload);
+                    // Replace or reconcile client-side state with this list.
+                    // For a full overwrite:
+                    SystemOperator.Instance.GameObjectManager.DeSerializeAllObjects(payload);
+                    
+                    LastResponseTime = DateTime.Now;
+
+                    await Scribe.DebugAsync("Received and applied authoritative server object list.");
+                }
+                catch (Exception ex)
+                {
+                    await Scribe.ErrorAsync(ex);
+                }
+            }
+
+        }
+
+
+        // Not yet used: for pushing server objects to client
+        public async Task SendServerObjectList()
+        {
+            StringBuilder sb = new();
+            sb.AppendLine(serverListPrefixText);
+            
+            foreach (ServerGameObject obj in SystemOperator.Instance.GameObjectManager.AllObjects)
+                sb.AppendLine(obj.SerializationString());
+            
+            await SendTextMessage(sb.ToString().TrimEnd());
+        }
     }
 }

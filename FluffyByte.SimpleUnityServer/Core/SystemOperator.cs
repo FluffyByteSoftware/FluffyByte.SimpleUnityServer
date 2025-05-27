@@ -24,6 +24,7 @@
 
         public readonly Sentinel Sentinel = new();
         public readonly HeartbeatManager HeartbeatManager = new();
+        public readonly GameObjectManager GameObjectManager = new();
 
         public event Action? ServiceStarted;
         public event Action? ServiceStopped;
@@ -36,6 +37,7 @@
                 Status = CoreServiceStatus.Errored;
                 await Scribe.ErrorAsync("SystemOperator asked to start system, but was not in a valid state to start from.");
                 await Scribe.DebugAsync($"SystemOperator Status: {Status}");
+
                 return;
             }
 
@@ -43,6 +45,7 @@
             {
                 ListOfCoreServices.Add(Sentinel);
                 ListOfCoreServices.Add(HeartbeatManager);
+                ListOfCoreServices.Add(GameObjectManager);
 
                 Status = CoreServiceStatus.Starting;
                 // Take a snapshot to avoid concurrency issues during iteration
