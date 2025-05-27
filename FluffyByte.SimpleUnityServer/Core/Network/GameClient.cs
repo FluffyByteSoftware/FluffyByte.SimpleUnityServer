@@ -1,19 +1,18 @@
-﻿// GameClient.cs
-using System;
-using System.IO;
-using System.Net;
-using System.Net.Sockets;
-using System.Runtime.CompilerServices;
-using System.Text;
-using System.Threading.Tasks;
-using FluffyByte.SimpleUnityServer.Game;
-using FluffyByte.SimpleUnityServer.Game.Managers;
-using FluffyByte.SimpleUnityServer.Interfaces;
-using FluffyByte.SimpleUnityServer.Utilities;
-using Microsoft.VisualBasic;
-
-namespace FluffyByte.SimpleUnityServer.Core.Network
+﻿namespace FluffyByte.SimpleUnityServer.Core.Network
 {
+
+    using System;
+    using System.IO;
+    using System.Net;
+    using System.Net.Sockets;
+    using System.Text;
+    using System.Threading.Tasks;
+    using System.Collections.Generic;
+    using FluffyByte.SimpleUnityServer.Game;
+    using FluffyByte.SimpleUnityServer.Game.Managers;
+    using FluffyByte.SimpleUnityServer.Interfaces;
+    using FluffyByte.SimpleUnityServer.Utilities;
+
     internal class GameClient : IDisposable, ITickable
     {
         public Guid Guid { get; private set; } = Guid.NewGuid();
@@ -37,6 +36,10 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
         private readonly string serverListPrefixText = "INCOMING_SERVER_OBJECT_LIST";
         private readonly string clientRequestObjectListText = "REQUEST_CLIENT_OBJECT_LIST";
         private readonly string serverRequestObjectListText = "REQUEST_SERVER_OBJECT_LIST";
+
+        private readonly Queue<string> _messagesToSend = new();
+        private const int MaxQueueSize = 10;
+        private const bool V = false;
 
         public event EventHandler? OnDisconnect;
 
@@ -67,7 +70,63 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
             UdpEndpoint = endpoint;
         }
 
-        public async Task SendTextMessage(string message)
+        // Queue a message to send during the next tick
+        public bool QueueTextMessage(string message)
+        {
+            lock (_messagesToSend)
+            {
+                if (_messagesToSend.Count >= MaxQueueSize)
+                {
+                    // Optionally: log or handle overflow
+                    return false;
+                }
+                _messagesToSend.Enqueue(message);
+                
+                return true;
+            }
+        }
+
+        // Called every server tick (HeartbeatManager), sends all queued messages this tick
+        public async void Tick()
+        {
+            try
+            {
+                await Scribe.DebugAsync($"Ticking GameClient...");
+                LastHeartbeat = DateTime.Now;
+
+                if (TcpSocket.Connected)
+                {
+                    await FlushOutgoingMessages();
+                    QueueTextMessage(clientRequestObjectListText); // Enqueue the request to be sent next tick
+                }
+            }
+            catch
+            {
+                await RequestDisconnect();
+            }
+        }
+
+        // Send all queued messages
+        public async Task FlushOutgoingMessages()
+        {
+            while (true)
+            {
+                string? message = null;
+                lock (_messagesToSend)
+                {
+                    if (_messagesToSend.Count == 0)
+                        break;
+                    message = _messagesToSend.Dequeue();
+                }
+                if (message != null)
+                {
+                    await SendTextMessage(message);
+                }
+            }
+        }
+
+        // Actually sends to the TCP stream
+        private async Task SendTextMessage(string message)
         {
             try
             {
@@ -170,31 +229,6 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
             }
         }
 
-        // Called every server tick (HeartbeatManager)
-        public async void Tick()
-        {
-            try
-            {
-                await Scribe.DebugAsync($"Ticking GameClient...");
-                LastHeartbeat = DateTime.Now;
-
-                if (TcpSocket.Connected)
-                {
-                    await RequestClientObjectList();
-                }
-            }
-            catch
-            {
-                await RequestDisconnect();
-            }
-        }
-
-        // Requests the client to send its object list
-        private async Task RequestClientObjectList()
-        {
-            await SendTextMessage(clientRequestObjectListText);
-        }
-
         // Handles incoming messages
         public async Task OnMessageReceived(string message)
         {
@@ -225,7 +259,7 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
                     // Replace or reconcile client-side state with this list.
                     // For a full overwrite:
                     SystemOperator.Instance.GameObjectManager.DeSerializeAllObjects(payload);
-                    
+
                     LastResponseTime = DateTime.Now;
 
                     await Scribe.DebugAsync("Received and applied authoritative server object list.");
@@ -238,17 +272,16 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
 
         }
 
-
         // Not yet used: for pushing server objects to client
-        public async Task SendServerObjectList()
+        public void SendServerObjectList()
         {
             StringBuilder sb = new();
             sb.AppendLine(serverListPrefixText);
-            
+
             foreach (ServerGameObject obj in SystemOperator.Instance.GameObjectManager.AllObjects)
                 sb.AppendLine(obj.SerializationString());
-            
-            await SendTextMessage(sb.ToString().TrimEnd());
+
+            QueueTextMessage(sb.ToString().TrimEnd());
         }
     }
 }

@@ -94,7 +94,7 @@ internal class Sentinel : CoreServiceTemplate
     {
         try
         {
-            await client.SendTextMessage("Welcome.");
+            client.QueueTextMessage("Welcome.");
 
             while (client.IsConnected)
             {
@@ -107,14 +107,14 @@ internal class Sentinel : CoreServiceTemplate
                     switch (parts[0].ToLowerInvariant())
                     {
                         case "/quit":
-                            await client.SendTextMessage("Goodbye!");
+                            client.QueueTextMessage("Goodbye!");
                             await client.RequestDisconnect();
                             return;
                         case "/ping":
-                            await client.SendTextMessage("Pong!");
+                            client.QueueTextMessage("Pong!");
                             break;
                         default:
-                            await client.SendTextMessage($"Unknown command: {parts[0]}");
+                            client.QueueTextMessage($"Unknown command: {parts[0]}");
                             break;
                     }
                 }
