@@ -13,14 +13,15 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
     internal class NetworkManager : IHelper
     {
         public string Name => "NetworkManager";
+        public Guid Guid { get; private set; } = Guid.NewGuid();
 
-        public ConcurrentDictionary<GameClient, DateTime> ConnectedClients { get; private set; } = [];
+        public ThreadSafeList<GameClient> ConnectedClients { get; private set; } = [];
 
         public async Task AddConnectedClient(GameClient gClient)
         {
             try
             {
-                ConnectedClients.TryAdd(gClient, DateTime.Now);
+                ConnectedClients.Add(gClient);
             }
             catch(Exception ex)
             {
@@ -32,15 +33,15 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
         {
             try
             {
-                int totalConnectedClients = ConnectedClients.Keys.Count;                
+                int totalConnectedClients = ConnectedClients.Count;                
 
                 
                 await Scribe.WriteCleanAsync($"Current Connected Clients: {totalConnectedClients}");
 
                 
-                Dictionary<GameClient, DateTime> temp = ConnectedClients.ToDictionary();
+                ThreadSafeList<GameClient> temp = ConnectedClients;
 
-                foreach(GameClient gClient in temp.Keys)
+                foreach(GameClient gClient in temp)
                 {
                     await Scribe.WriteCleanAsync($"ConnectedClient: {gClient.Name} first connected; {gClient.FirstConnectedTime}");
 

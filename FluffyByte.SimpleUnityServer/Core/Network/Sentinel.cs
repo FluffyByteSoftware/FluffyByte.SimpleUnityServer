@@ -1,59 +1,81 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Net;
+﻿using System.Net;
 using System.Net.Sockets;
-using System.Text;
-using System.Threading.Tasks;
+using FluffyByte.SimpleUnityServer.Core;
+using FluffyByte.SimpleUnityServer.Core.Network;
 using FluffyByte.SimpleUnityServer.Enums;
-using FluffyByte.SimpleUnityServer.Interfaces;
 using FluffyByte.SimpleUnityServer.Utilities;
 
-namespace FluffyByte.SimpleUnityServer.Core.Network
+internal class Sentinel : CoreServiceTemplate
 {
-    internal class Sentinel : ICoreService
+    public override string Name { get; } = "Sentinel";
+    public NetworkManager Manager { get; private set; } = new();
+    public TcpListener Listener { get; private set; } = new(IPAddress.Parse("10.0.0.84"), 9998);
+
+    public Sentinel() : base() { }
+
+    public override async Task StartAsync()
     {
-        public string Name { get; } = "Sentinel";
-
-        private readonly CancellationTokenSource _cts = new();
-
-        public NetworkManager Manager { get; private set; } = new();
-
-        public TcpListener Listener { get; private set; } = new(IPAddress.Parse("10.0.0.84"), 9998);
-
-        public CancellationToken CancelToken => _cts.Token;
-
-        public CoreServiceStatus Status { get; private set; } = CoreServiceStatus.Default;
-
-        public async Task StartAsync()
+        try
         {
-            try
-            {
-                Status = CoreServiceStatus.Starting;
+            SetStatus(CoreServiceStatus.Starting);
+            await Scribe.DebugAsync($"[{Name}] Starting TCP Listener...");
+            Listener.Start();
+            _ = WelcomeNewClientLoop();
+        }
+        catch (Exception ex)
+        {
+            await Scribe.ErrorAsync(ex);
+        }
+    }
 
-                Listener.Start();
-            }
-            catch(Exception ex)
+    public override async Task StopAsync()
+    {
+        try
+        {
+            SetStatus(CoreServiceStatus.Stopping);
+            await Scribe.DebugAsync($"[{Name}] Stopping TCP listener...");
+            ResetCancellationToken();
+            Listener.Stop();
+        }
+        catch (Exception ex)
+        {
+            await Scribe.ErrorAsync(ex);
+        }
+        finally
+        {
+            SetStatus(CoreServiceStatus.Stopped);
+        }
+    }
+
+    private async Task WelcomeNewClientLoop()
+    {
+        try
+        {
+            SetStatus(CoreServiceStatus.Running);
+            while (!CancelToken.IsCancellationRequested)
             {
-                await Scribe.ErrorAsync(ex);
-            }
-            try
-            {
-                while (!CancelToken.IsCancellationRequested)
+                if (Listener.Pending())
                 {
+                    Socket tcpSocket = await Listener.AcceptSocketAsync();
+                    
+                    GameClient client = new(tcpSocket);
+                    
+                    await Manager.AddConnectedClient(client);
+                    // Transition to Warden, e.g.:
+                    // Warden.HandleClient(client);
 
+                    await Scribe.DebugAsync($"[{Name}] Accepted new TCP client: {client.Guid}");
                 }
-            }
-            catch(Exception ex)
-            {
-                await Scribe.ErrorAsync(ex);
+                await Task.Delay(10, CancelToken);
             }
         }
-
-        public async Task StopAsync()
+        catch (OperationCanceledException)
         {
-
+            _ = Scribe.DebugAsync("WelcomeNewClientLoop canceled due to shutdown?");
         }
-
+        catch (Exception ex)
+        {
+            await Scribe.ErrorAsync(ex);
+        }
     }
 }

@@ -1,5 +1,4 @@
-﻿// Polished Scribe.cs: Robust, async-friendly, thread-safe logger for console applications
-namespace FluffyByte.SimpleUnityServer.Utilities
+﻿namespace FluffyByte.SimpleUnityServer.Utilities
 {
     using System;
     using System.IO;
@@ -113,10 +112,6 @@ namespace FluffyByte.SimpleUnityServer.Utilities
             return Task.CompletedTask;
         }
 
-        // === SUPPORT ===
-        /// <summary>
-        /// Writes a plain, unformatted message directly to the console. No colors, no prefixes, not queued.
-        /// </summary>
         public static Task WriteCleanAsync(string message)
         {
             Console.WriteLine(message);
@@ -132,12 +127,10 @@ namespace FluffyByte.SimpleUnityServer.Utilities
                 SetColor(messageType);
                 if (messageType == MessageType.Error && message.Contains("EXCEPTION"))
                 {
-                    // Multi-line for full exceptions
                     Console.WriteLine(message);
                 }
                 else
                 {
-                    // Single line log: [Timestamp][TYPE][File:Line] Message
                     Console.WriteLine($"[{TimeStamp}] [{messageType.ToString().ToUpper()}] [{Path.GetFileName(file)}:{line}] {message}");
                 }
                 Console.ResetColor();
