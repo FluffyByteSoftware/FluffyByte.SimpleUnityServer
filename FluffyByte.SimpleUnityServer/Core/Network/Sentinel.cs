@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using FluffyByte.SimpleUnityServer.Core;
 using FluffyByte.SimpleUnityServer.Core.Network;
 using FluffyByte.SimpleUnityServer.Enums;
+using FluffyByte.SimpleUnityServer.Game.Managers;
 using FluffyByte.SimpleUnityServer.Utilities;
 
 internal class Sentinel : CoreServiceTemplate
@@ -61,36 +62,70 @@ internal class Sentinel : CoreServiceTemplate
                     Socket tcpSocket = await Listener.AcceptSocketAsync();
                     GameClient client = new(tcpSocket);
 
-                    // --- Perform handshake before adding client ---
-                    bool handshakeOk = await PerformHandshake(client.TcpStreamReader, client.TcpStreamWriter);
-
-                    if (!handshakeOk)
+                    bool handshakeSuccessful = await PerformHandshake(client.TcpStreamReader, client.TcpStreamWriter);
+                    
+                    if(!handshakeSuccessful)
                     {
-                        await Scribe.DebugAsync($"[{Name}] Handshake failed. Disconnecting client.");
-                        client.TcpSocket.Close();
-                        continue; // Don't add this client!
+                        await Scribe.WarnAsync($"[{client.Name}] Handshake failed. Disconnecting client.");
+                        continue;
                     }
 
+                    SystemOperator.Instance.HeartbeatManager.Register(client);
+
                     await Manager.AddConnectedClient(client);
-                    await Scribe.DebugAsync($"[{Name}] Accepted new TCP client: {client.Guid}");
-
-                    await client.SendTextMessage("Welcome from server.");
-
-                    string response = await client.ReceiveTextMessage();
-                    await client.SendTextMessage($"You said: {response}");
+                    
+                    _ = HandleClientCommunication(client);
                 }
+
                 await Task.Delay(10, CancelToken);
             }
         }
         catch (OperationCanceledException)
         {
-            _ = Scribe.DebugAsync("WelcomeNewClientLoop canceled due to shutdown?");
+            await Scribe.DebugAsync("WelcomeNewClientLoop canceled due to shutdown.");
         }
         catch (Exception ex)
         {
             await Scribe.ErrorAsync(ex);
         }
     }
+
+    private static async Task HandleClientCommunication(GameClient client)
+    {
+        try
+        {
+            await client.SendTextMessage("Welcome.");
+
+            while (client.IsConnected)
+            {
+                string message = await client.ReceiveTextMessage();
+
+                if (message[0] == '/')
+                {
+                    string[] parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+                    switch (parts[0].ToLowerInvariant())
+                    {
+                        case "/quit":
+                            await client.SendTextMessage("Goodbye!");
+                            await client.RequestDisconnect();
+                            return;
+                        case "/ping":
+                            await client.SendTextMessage("Pong!");
+                            break;
+                        default:
+                            await client.SendTextMessage($"Unknown command: {parts[0]}");
+                            break;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            await Scribe.ErrorAsync(ex);
+        }
+    }
+
 
     private static async Task<bool> PerformHandshake(StreamReader reader, StreamWriter writer)
     {

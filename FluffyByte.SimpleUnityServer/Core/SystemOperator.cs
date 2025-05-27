@@ -5,6 +5,7 @@
     using System.Linq;
     using System.Threading.Tasks;
     using FluffyByte.SimpleUnityServer.Enums;
+    using FluffyByte.SimpleUnityServer.Game.Managers;
     using FluffyByte.SimpleUnityServer.Interfaces;
     using FluffyByte.SimpleUnityServer.Utilities;
 
@@ -21,7 +22,8 @@
         // Tracks running services for stop/status
         private readonly ThreadSafeList<ICoreService> _listOfRunningServices = [];
 
-        public readonly Sentinel _sentinel = new();
+        public readonly Sentinel Sentinel = new();
+        public readonly HeartbeatManager HeartbeatManager = new();
 
         public event Action? ServiceStarted;
         public event Action? ServiceStopped;
@@ -39,7 +41,8 @@
 
             try
             {
-                ListOfCoreServices.Add(_sentinel);
+                ListOfCoreServices.Add(Sentinel);
+                ListOfCoreServices.Add(HeartbeatManager);
 
                 Status = CoreServiceStatus.Starting;
                 // Take a snapshot to avoid concurrency issues during iteration

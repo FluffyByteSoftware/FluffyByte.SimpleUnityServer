@@ -8,6 +8,7 @@
     using FluffyByte.SimpleUnityServer.Core;
     using FluffyByte.SimpleUnityServer.Enums;
     using FluffyByte.SimpleUnityServer.Interfaces;
+    using FluffyByte.SimpleUnityServer.Utilities;
 
     internal class HeartbeatManager : CoreServiceTemplate
     {
@@ -38,6 +39,8 @@
         {
             while (!CancelToken.IsCancellationRequested)
             {
+                await Scribe.WriteAsync("Ticking all children...");
+
                 foreach (ITickable tickable in _tickables.ToArray())
                     tickable.Tick();
 

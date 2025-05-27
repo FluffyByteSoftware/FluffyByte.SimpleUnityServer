@@ -5,11 +5,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Text;
 using System.Threading.Tasks;
+using FluffyByte.SimpleUnityServer.Interfaces;
 using FluffyByte.SimpleUnityServer.Utilities;
+using Microsoft.VisualBasic;
 
 namespace FluffyByte.SimpleUnityServer.Core.Network
 {
-    internal class GameClient : IDisposable
+    internal class GameClient : IDisposable, ITickable
     {
         public Guid Guid { get; private set; } = Guid.NewGuid();
         public string Name { get; private set; } = "GameClient";
@@ -26,6 +28,8 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
 
         public DateTime FirstConnectedTime { get; private set; }
         public DateTime LastResponseTime { get; private set; }
+        public DateTime LastHeartbeat { get; private set; }
+
 
         public event EventHandler? OnDisconnect;
 
@@ -127,6 +131,8 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
             GC.SuppressFinalize(this);
         }
 
+        public bool IsConnected => TcpSocket?.Connected ?? false;
+
         protected virtual void Dispose(bool disposing)
         {
             if (_disposed)
@@ -156,5 +162,22 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
                 await Scribe.ErrorAsync(ex);
             }
         }
+
+        public async void Tick()
+        {
+            try
+            {
+                await Scribe.DebugAsync($"Ticking GameClient...");
+                LastHeartbeat = DateTime.Now;
+
+                await SendTextMessage("Heartbeat");
+            }
+            catch
+            {
+                await RequestDisconnect();
+            }
+            
+        }
+        
     }
 }
