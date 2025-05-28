@@ -1,197 +1,201 @@
-﻿using System.Net.Sockets;
-using FluffyByte.SimpleUnityServer.Game;
-using FluffyByte.SimpleUnityServer.Game.Managers;
-using FluffyByte.SimpleUnityServer.Interfaces;
-using FluffyByte.SimpleUnityServer.Utilities;
-
-namespace FluffyByte.SimpleUnityServer.Core.Network.Client
+﻿namespace FluffyByte.SimpleUnityServer.Core.Network.Client
 {
-    internal class Messenger : IGameClientComponent, IDisposable
+    using System;
+    using System.Collections.Concurrent;
+    using System.IO;
+    using System.Net.Sockets;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using System.Security.Cryptography;
+    using FluffyByte.SimpleUnityServer.Utilities;
+    using FluffyByte.SimpleUnityServer.Game.Managers;
+
+    /// <summary>
+    /// Responsible for reliable, thread-safe async message IO over a TCP connection for a single client.
+    /// Protocol parsing/handling should be done at a higher level.
+    /// </summary>
+    internal sealed class Messenger : IDisposable
     {
-        public string Name => "Messenger";
+        public string Name => nameof(Messenger);
         public GameClient Parent { get; }
 
         private readonly NetworkStream _stream;
-
         private readonly StreamReader _reader;
-        public StreamReader TcpReader => _reader;
-
         private readonly StreamWriter _writer;
-        public StreamWriter TcpWriter => _writer;
 
-        private readonly Queue<string> _outbox = new();
+        private readonly ConcurrentQueue<string> _incoming = new();
+        private readonly ConcurrentQueue<string> _outgoing = new();
+        private readonly CancellationTokenSource _cts = new();
+        private readonly int _readTimeoutMs;
 
+        /// <summary>
+        /// Raised when a new line of text is received from the network (threadpool context).
+        /// </summary>
         public event Func<string, Task>? MessageReceived;
 
-        private readonly string clientListPrefixText = "INCOMING_CLIENT_OBJECT_LIST";
-        private readonly string clientRequestObjectListText = "REQUEST_SERVER_OBJECT_LIST";
-
-        public Messenger(GameClient parent, Socket socket)
+        public Messenger(GameClient parent, Socket socket, int readTimeoutMs = 1000)
         {
-            Parent = parent;
-            _stream = new(socket, false);
-            _reader = new(_stream);
-            _writer = new(_stream) { AutoFlush = true };
+            Parent = parent ?? throw new ArgumentNullException(nameof(parent));
+            _stream = new NetworkStream(socket, ownsSocket: false);
+            _reader = new StreamReader(_stream);
+            _writer = new StreamWriter(_stream) { AutoFlush = true };
+            _readTimeoutMs = readTimeoutMs;
         }
 
-        public void QueueMessage(string message)
+        /// <summary>
+        /// Enqueues an outgoing message to be sent to the client.
+        /// </summary>
+        public void EnqueueOutgoing(string message)
         {
-            lock (_outbox)
-            {
-                _outbox.Enqueue(message);
-            }
+            ArgumentNullException.ThrowIfNull(message);
+            _outgoing.Enqueue(message);
         }
 
-        public async Task ReadTextMessage()
-        {
-            if(Parent.DisconnectRequested || !Parent.PingClient)
-            {
-                return;
-            }
+        /// <summary>
+        /// Attempts to dequeue a message received from the network (for processing by higher-level code).
+        /// </summary>
+        public bool TryDequeueIncoming(out string? message)
+            => _incoming.TryDequeue(out message);
 
+        /// <summary>
+        /// Begins asynchronous background tasks to handle network IO.
+        /// </summary>
+        public void StartBackgroundLoops()
+        {
+            Task.Run(() => ReceiveLoopAsync(_cts.Token));
+            Task.Run(() => SendLoopAsync(_cts.Token));
+        }
+
+        /// <summary>
+        /// Background: Reads lines from the network, enqueues them, and raises MessageReceived.
+        /// </summary>
+        private async Task ReceiveLoopAsync(CancellationToken ct)
+        {
             try
             {
-                string? response = await TryReadLineAsync(10);
-
-                Parent.UpdateResponseTime();
-
-                if(!string.IsNullOrWhiteSpace(response))
+                while (!ct.IsCancellationRequested)
                 {
-                    lock(_outbox)
+                    string? line = await TryReadLineAsync(_readTimeoutMs, ct);
+                    if (!string.IsNullOrWhiteSpace(line))
                     {
-                        _outbox.Enqueue(response);
+                        _incoming.Enqueue(line);
+                        if (MessageReceived != null)
+                            await MessageReceived.Invoke(line);
                     }
                 }
             }
             catch (IOException)
             {
-                Parent.RaiseRequestToDisconnect();
+                // Remote closed or network error; signal disconnect
+                Parent?.RaiseRequestToDisconnect();
             }
+            catch (ObjectDisposedException) { }
             catch (Exception ex)
             {
-                Scribe.Error(ex);
+                Utilities.Scribe.Error(ex);
             }
         }
 
-        private async Task SendTextMessage(string message)
+        /// <summary>
+        /// Background: Dequeues outgoing messages and sends them to the client.
+        /// </summary>
+        private async Task SendLoopAsync(CancellationToken ct)
         {
             try
             {
-                if (Parent.DisconnectRequested) return;
-
-                await _writer.WriteLineAsync(message);
+                while (!ct.IsCancellationRequested)
+                {
+                    while (_outgoing.TryDequeue(out var msg))
+                    {
+                        await SendTextMessageAsync(msg, ct);
+                    }
+                    await Task.Delay(10, ct); // Avoid busy loop
+                }
             }
             catch (IOException)
             {
-                Parent.RaiseRequestToDisconnect();
+                Parent?.RaiseRequestToDisconnect();
             }
+            catch (ObjectDisposedException) { }
             catch (Exception ex)
             {
-                await Scribe.ErrorAsync(ex);
+                Utilities.Scribe.Error(ex);
             }
         }
 
-        public bool TryDequeueReceived(out string message)
+        /// <summary>
+        /// Attempts to read a line from the network with timeout.
+        /// </summary>
+        private async Task<string?> TryReadLineAsync(int timeoutMs, CancellationToken ct)
         {
-            lock (_outbox)
-            {
-                if (_outbox.Count > 0)
-                {
-                    message = _outbox.Dequeue();
-                    return true;
-                }
-            }
-            message = string.Empty;
-            return false;
+            Task<string?> readTask = _reader.ReadLineAsync(ct).AsTask();
+
+            var delayTask = Task.Delay(timeoutMs, ct);
+            
+            Task completed = await Task.WhenAny(readTask, delayTask);
+            
+            if (completed == readTask)
+                return await readTask;
+            
+            return null;
         }
 
-        public async Task OnServerMessageReceived(string message)
+        /// <summary>
+        /// Sends a single message (with error handling).
+        /// </summary>
+        private async Task SendTextMessageAsync(string message, CancellationToken ct)
         {
-            string messageStart = message.Split('\n')[0].Trim();
-
+            if (Parent?.DisconnectRequested == true) return;
             try
             {
-                if (messageStart == clientListPrefixText)
-                {
-                    string payLoad = message[clientListPrefixText.Length..].Trim();
-
-                    try
-                    {
-                        List<ServerGameObject> clientObjects = await GameObjectManager.ParseObjectList(payLoad);
-
-                        foreach (ServerGameObject obj in clientObjects)
-                        {
-                            await Scribe.WriteAsync($"Serialized Client Object: {obj.Name}");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        await Scribe.ErrorAsync(ex);
-                    }
-                }
-                else if (messageStart == clientRequestObjectListText)
-                {
-                    //awaiting implementation
-
-                }
+                await _writer.WriteLineAsync(message.AsMemory(), ct);
+            }
+            catch (IOException)
+            {
+                Parent?.RaiseRequestToDisconnect();
             }
             catch (Exception ex)
             {
-                await Scribe.ErrorAsync(ex);
+                await Utilities.Scribe.ErrorAsync(ex);
             }
         }
 
-        public async Task FlushOutgoingMessages()
-        {
-            while (true)
-            {
-                string? msg = null;
-
-                lock (_outbox)
-                {
-                    if (_outbox.Count == 0)
-                        break;
-                    msg = _outbox.Dequeue();
-                }
-
-                if (msg != null)
-                {
-                    await SendTextMessage(msg);
-                }
-            }
-        }
-
+        /// <summary>
+        /// Immediately stops all background network activity and closes underlying resources.
+        /// </summary>
         public void Dispose()
         {
+            _cts.Cancel();
             try { _reader?.Dispose(); } catch { }
             try { _writer?.Dispose(); } catch { }
             try { _stream?.Dispose(); } catch { }
+            _cts.Dispose();
         }
 
-        public async Task SendClientTheServerList()
+        public async Task<bool> PerformHandshakeAsync()
         {
-            string response = SystemOperator.Instance.GameObjectManager.SerializeAllObjects();
+            // Step 1: Send nonce to client
+            string nonce = Guid.NewGuid().ToString();
+            await _writer.WriteLineAsync(nonce);
 
-            QueueMessage(response);
+            // Step 2: Receive hash from client
+            string? clientHash = await _reader.ReadLineAsync();
 
-            await Task.CompletedTask;
-        }
-
-        private async Task<string?> TryReadLineAsync(int timeoutMs)
-        {
-            Task<string?> readTask = _reader.ReadLineAsync();
-            Task timeoutTask = Task.Delay(timeoutMs);
-
-            Task finishedTask = await Task.WhenAny(readTask, timeoutTask);
-            if (finishedTask == readTask)
+            if (string.IsNullOrEmpty(clientHash))
             {
-                return await readTask; // message received
+                await Utilities.Scribe.DebugAsync("Client did not send a hash.");
+                return false;
             }
-            else
+
+            // Step 3: Validate
+            if (!AuthHashManager.VerifyClientHash(nonce, clientHash))
             {
-                return null; // timed out, nothing read
+                await _writer.WriteLineAsync("ERROR: Unauthorized client.");
+                return false;
             }
+
+            await _writer.WriteLineAsync("OK");
+            return true;
         }
     }
-
 }

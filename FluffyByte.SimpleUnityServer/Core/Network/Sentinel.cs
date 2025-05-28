@@ -11,9 +11,7 @@ internal class Sentinel : CoreServiceTemplate
     public override string Name { get; } = "Sentinel";
     public TcpListener Listener { get; private set; } = new(IPAddress.Parse("10.0.0.84"), 9998);
 
-    public Sentinel() : base() { }
-
-    private const string SECRET = "YourSuperSecretKey12345";
+    public Sentinel() : base() { }   
 
     public override async Task StartAsync()
     {
@@ -61,9 +59,11 @@ internal class Sentinel : CoreServiceTemplate
                     Socket tcpSocket = await Listener.AcceptSocketAsync();
                     GameClient client = new(tcpSocket);
 
-                    bool handshakeSuccessful = await PerformHandshake(client.Messenger.TcpReader, client.Messenger.TcpWriter);
-                    
-                    if(!handshakeSuccessful)
+                    bool handshakeSuccessful = await client.Messenger.PerformHandshakeAsync();
+
+                    client.Messenger.StartBackgroundLoops();
+
+                    if (!handshakeSuccessful)
                     {
                         await Scribe.WarnAsync($"[{client.Name}] Handshake failed. Disconnecting client.");
                         continue;
@@ -92,56 +92,9 @@ internal class Sentinel : CoreServiceTemplate
     {
         try
         {
-            client.Messenger.QueueMessage("Welcome.");
-            await client.Messenger.FlushOutgoingMessages();
+            client.Messenger.EnqueueOutgoing("Welcome");
 
-            
-            while (client.ConnectionTracker.PingClient())
-            {
-                // Attempt to read a line from client input
-                await client.Messenger.ReadTextMessage();
-
-                // Process any received messages
-                while (client.Messenger.TryDequeueReceived(out string message))
-                {
-                    if (string.IsNullOrWhiteSpace(message))
-                    {
-                        continue;
-                    }
-
-                    if (message[0] == '/')
-                    {
-                        string[] parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-                        switch (parts[0].ToLowerInvariant())
-                        {
-                            case "/quit":
-                                client.Messenger.QueueMessage("Goodbye!");
-                                await client.Messenger.FlushOutgoingMessages();
-                                
-                                client.RaiseRequestToDisconnect();
-
-                                return;
-                            case "/ping":
-                                client.Messenger.QueueMessage("Pong!");
-                                break;
-                            default:
-                                client.Messenger.QueueMessage($"Unknown command: {parts[0]}");
-                                break;
-                        }
-                    }
-                    else
-                    {
-                        await client.Messenger.OnServerMessageReceived(message);
-                    }
-                }
-
-                // Always flush outbox once per loop
-                await client.Messenger.FlushOutgoingMessages();
-
-                // Small delay to avoid busy loop
-                await Task.Delay(10);
-            }
+            await Task.Delay(10000);
 
             client.RaiseRequestToDisconnect();
         }
@@ -149,42 +102,5 @@ internal class Sentinel : CoreServiceTemplate
         {
             await Scribe.ErrorAsync(ex);
         }
-    }
-
-
-
-    private static async Task<bool> PerformHandshake(StreamReader reader, StreamWriter writer)
-    {
-        // Step 1: Send a nonce (random string) to the client
-        string nonce = Guid.NewGuid().ToString();
-        await writer.WriteLineAsync(nonce);
-
-        // Step 2: Receive hash from client
-        string? clientHash = await reader.ReadLineAsync();
-
-        if (string.IsNullOrEmpty(clientHash))
-        {
-            await Scribe.DebugAsync("Client did not send a hash.");
-            return false;
-        }
-
-        // Step 3: Compute expected hash
-        string expectedHash = ComputeSha256Hash(nonce + SECRET);
-
-        // Step 4: Validate
-        if (!string.Equals(clientHash, expectedHash, StringComparison.OrdinalIgnoreCase))
-        {
-            await writer.WriteLineAsync("ERROR: Unauthorized client.");
-            return false;
-        }
-
-        await writer.WriteLineAsync("OK");
-        return true;
-    }
-
-    private static string ComputeSha256Hash(string rawData)
-    {
-        byte[] hashBytes = System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(rawData));
-        return System.Convert.ToHexString(hashBytes).ToLowerInvariant();
     }
 }

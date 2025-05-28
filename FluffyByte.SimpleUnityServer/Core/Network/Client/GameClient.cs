@@ -63,6 +63,8 @@
             {
                 SystemOperator.Instance.HeartbeatManager.Unregister(this);
 
+                await Disconnect();
+
                 return;
             }
 
@@ -87,6 +89,17 @@
             SystemOperator.Instance.HeartbeatManager.Unregister(this);
 
             _requestedDisconnect = true;
+        }
+
+        private async Task Disconnect()
+        {
+            if (_disconnected) return;
+            
+            if (!DisconnectRequested) return;
+
+            _disconnected = true;
+
+            await Socket.DisconnectAsync(true);
         }
     }
 }
