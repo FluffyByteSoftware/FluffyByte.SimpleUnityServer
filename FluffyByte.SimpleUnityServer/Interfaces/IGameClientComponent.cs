@@ -7,7 +7,7 @@ using FluffyByte.SimpleUnityServer.Core.Network.Client;
 
 namespace FluffyByte.SimpleUnityServer.Interfaces
 {
-    internal interface IGameClientComponent : IDisposable
+    internal interface IGameClientComponent
     {
         string Name { get; }
         GameClient Parent { get; }

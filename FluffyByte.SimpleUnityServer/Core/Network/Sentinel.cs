@@ -95,10 +95,11 @@ internal class Sentinel : CoreServiceTemplate
             client.Messenger.QueueMessage("Welcome.");
             await client.Messenger.FlushOutgoingMessages();
 
-            while (client.IsConnected && (DateTime.Now - client.LastResponseTime).TotalSeconds < 2)
+            
+            while (client.ConnectionTracker.PingClient())
             {
                 // Attempt to read a line from client input
-                await client.Messenger.ReceiveTextMessage();
+                await client.Messenger.ReadTextMessage();
 
                 // Process any received messages
                 while (client.Messenger.TryDequeueReceived(out string message))
@@ -117,7 +118,9 @@ internal class Sentinel : CoreServiceTemplate
                             case "/quit":
                                 client.Messenger.QueueMessage("Goodbye!");
                                 await client.Messenger.FlushOutgoingMessages();
-                                await client.RequestDisconnect();
+                                
+                                client.RaiseRequestToDisconnect();
+
                                 return;
                             case "/ping":
                                 client.Messenger.QueueMessage("Pong!");
@@ -140,7 +143,7 @@ internal class Sentinel : CoreServiceTemplate
                 await Task.Delay(10);
             }
 
-            await client.RequestDisconnect();
+            client.RaiseRequestToDisconnect();
         }
         catch (Exception ex)
         {

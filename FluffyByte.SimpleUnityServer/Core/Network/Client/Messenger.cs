@@ -6,7 +6,7 @@ using FluffyByte.SimpleUnityServer.Utilities;
 
 namespace FluffyByte.SimpleUnityServer.Core.Network.Client
 {
-    internal class Messenger : IGameClientComponent
+    internal class Messenger : IGameClientComponent, IDisposable
     {
         public string Name => "Messenger";
         public GameClient Parent { get; }
@@ -42,14 +42,16 @@ namespace FluffyByte.SimpleUnityServer.Core.Network.Client
             }
         }
 
-        public async Task ReceiveTextMessage()
+        public async Task ReadTextMessage()
         {
-            if (Parent.Disconnecting) 
+            if(Parent.DisconnectRequested || !Parent.PingClient)
+            {
                 return;
+            }
 
             try
             {
-                string? response = await _reader.ReadLineAsync();
+                string? response = await TryReadLineAsync(10);
 
                 Parent.UpdateResponseTime();
 
@@ -75,7 +77,7 @@ namespace FluffyByte.SimpleUnityServer.Core.Network.Client
         {
             try
             {
-                if (Parent.Disconnecting) return;
+                if (Parent.DisconnectRequested) return;
 
                 await _writer.WriteLineAsync(message);
             }
@@ -173,6 +175,22 @@ namespace FluffyByte.SimpleUnityServer.Core.Network.Client
             QueueMessage(response);
 
             await Task.CompletedTask;
+        }
+
+        private async Task<string?> TryReadLineAsync(int timeoutMs)
+        {
+            Task<string?> readTask = _reader.ReadLineAsync();
+            Task timeoutTask = Task.Delay(timeoutMs);
+
+            Task finishedTask = await Task.WhenAny(readTask, timeoutTask);
+            if (finishedTask == readTask)
+            {
+                return await readTask; // message received
+            }
+            else
+            {
+                return null; // timed out, nothing read
+            }
         }
     }
 

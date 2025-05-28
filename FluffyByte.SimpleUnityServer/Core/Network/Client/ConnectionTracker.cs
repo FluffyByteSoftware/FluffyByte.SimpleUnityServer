@@ -9,7 +9,7 @@
     using FluffyByte.SimpleUnityServer.Interfaces;
     using FluffyByte.SimpleUnityServer.Utilities;
 
-    internal class ConnectionTracker : IGameClientComponent
+    internal class ConnectionTracker : IGameClientComponent, IDisposable
     {
         public string Name => "Connection Tracker";
 
@@ -19,7 +19,7 @@
 
         private const double TIMEOUT = 2.0;
 
-        private Socket Socket;
+        private readonly Socket Socket;
 
         public GameClient Parent { get; }
 
