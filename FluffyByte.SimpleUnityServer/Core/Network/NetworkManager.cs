@@ -7,6 +7,7 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
     using System.Linq;
     using System.Text;
     using System.Threading.Tasks;
+    using FluffyByte.SimpleUnityServer.Core.Network.Client;
     using FluffyByte.SimpleUnityServer.Interfaces;
     using FluffyByte.SimpleUnityServer.Utilities;
 
@@ -43,7 +44,7 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
 
                 foreach(GameClient gClient in temp)
                 {
-                    await Scribe.WriteCleanAsync($"ConnectedClient: {gClient.Name} first connected; {gClient.FirstConnectedTime}");
+                    await Scribe.WriteCleanAsync($"ConnectedClient: {gClient.Name} first connected; {gClient.ConnectionTracker.ConnectionStartTime}");
 
                 }
             }

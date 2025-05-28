@@ -14,7 +14,7 @@
     {
         public override string Name => "Heartbeat Manager";
 
-        private readonly List<ITickable> _tickables = [];
+        private readonly ThreadSafeList<ITickable> _tickables = [];
 
         private readonly int _tickIntervalMs = 250; // 1/4 second
 
@@ -44,6 +44,7 @@
         {
             await Task.CompletedTask;
         }
+
         private async Task TickLoop()
         {
             try
@@ -73,6 +74,8 @@
                     }
                     await Task.Delay(_tickIntervalMs, CancelToken);
                 }
+
+                await Scribe.WriteCleanAsync("Tick loop exited.");
             }
             catch(Exception ex)
             {

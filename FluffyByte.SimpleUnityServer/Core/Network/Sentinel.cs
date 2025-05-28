@@ -1,7 +1,7 @@
 ﻿using System.Net;
 using System.Net.Sockets;
 using FluffyByte.SimpleUnityServer.Core;
-using FluffyByte.SimpleUnityServer.Core.Network;
+using FluffyByte.SimpleUnityServer.Core.Network.Client;
 using FluffyByte.SimpleUnityServer.Enums;
 using FluffyByte.SimpleUnityServer.Game.Managers;
 using FluffyByte.SimpleUnityServer.Utilities;
@@ -61,7 +61,7 @@ internal class Sentinel : CoreServiceTemplate
                     Socket tcpSocket = await Listener.AcceptSocketAsync();
                     GameClient client = new(tcpSocket);
 
-                    bool handshakeSuccessful = await PerformHandshake(client.TcpStreamReader, client.TcpStreamWriter);
+                    bool handshakeSuccessful = await PerformHandshake(client.Messenger.TcpReader, client.Messenger.TcpWriter);
                     
                     if(!handshakeSuccessful)
                     {
@@ -70,18 +70,7 @@ internal class Sentinel : CoreServiceTemplate
                     }
 
                     SystemOperator.Instance.HeartbeatManager.Register(client);
-                    SystemOperator.Instance.NetworkManager.ConnectedClients.Add(client);
-
-                    client.OnDisconnect += (sender, args) =>
-                    {
-                        Scribe.Debug($"OnDisconnect fired for client {client.Name}");
-
-                        SystemOperator.Instance.HeartbeatManager.Unregister(client);
-
-                        SystemOperator.Instance.NetworkManager.ConnectedClients.Remove(client);
-                    };
-
-                    
+                    SystemOperator.Instance.NetworkManager.ConnectedClients.Add(client);                   
                     
                     _ = HandleClientCommunication(client);
                 }
@@ -103,39 +92,52 @@ internal class Sentinel : CoreServiceTemplate
     {
         try
         {
-            client.QueueTextMessage("Welcome.");
+            client.Messenger.QueueMessage("Welcome.");
+            await client.Messenger.FlushOutgoingMessages();
 
-            while (client.IsConnected && (client.LastResponseTime - DateTime.Now).TotalSeconds < 2)
+            while (client.IsConnected && (DateTime.Now - client.LastResponseTime).TotalSeconds < 2)
             {
-                string message = await client.ReceiveTextMessage();
-                
-                if(string.IsNullOrWhiteSpace(message))
-                {
-                    continue;
-                }
+                // Attempt to read a line from client input
+                await client.Messenger.ReceiveTextMessage();
 
-                if (message[0] == '/')
+                // Process any received messages
+                while (client.Messenger.TryDequeueReceived(out string message))
                 {
-                    string[] parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
-
-                    switch (parts[0].ToLowerInvariant())
+                    if (string.IsNullOrWhiteSpace(message))
                     {
-                        case "/quit":
-                            client.QueueTextMessage("Goodbye!");
-                            await client.RequestDisconnect();
-                            return;
-                        case "/ping":
-                            client.QueueTextMessage("Pong!");
-                            break;
-                        default:
-                            client.QueueTextMessage($"Unknown command: {parts[0]}");
-                            break;
+                        continue;
+                    }
+
+                    if (message[0] == '/')
+                    {
+                        string[] parts = message.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
+                        switch (parts[0].ToLowerInvariant())
+                        {
+                            case "/quit":
+                                client.Messenger.QueueMessage("Goodbye!");
+                                await client.Messenger.FlushOutgoingMessages();
+                                await client.RequestDisconnect();
+                                return;
+                            case "/ping":
+                                client.Messenger.QueueMessage("Pong!");
+                                break;
+                            default:
+                                client.Messenger.QueueMessage($"Unknown command: {parts[0]}");
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        await client.Messenger.OnServerMessageReceived(message);
                     }
                 }
-                else
-                {
-                    await client.OnMessageReceived(message);
-                }
+
+                // Always flush outbox once per loop
+                await client.Messenger.FlushOutgoingMessages();
+
+                // Small delay to avoid busy loop
+                await Task.Delay(10);
             }
 
             await client.RequestDisconnect();
@@ -145,6 +147,7 @@ internal class Sentinel : CoreServiceTemplate
             await Scribe.ErrorAsync(ex);
         }
     }
+
 
 
     private static async Task<bool> PerformHandshake(StreamReader reader, StreamWriter writer)
