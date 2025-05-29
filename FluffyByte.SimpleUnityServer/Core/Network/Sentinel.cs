@@ -62,23 +62,11 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
                 {
                     if (TcpListener.Pending())
                     {
+                        
                         Socket tcpSocket = await TcpListener.AcceptSocketAsync();
                         GameClient client = new(tcpSocket);
 
-                        bool handshakeSuccessful = await client.Messenger.PerformHandshakeAsync();
-
-                        client.Messenger.StartBackgroundLoops();
-
-                        if (!handshakeSuccessful)
-                        {
-                            await Scribe.WarnAsync($"[{client.Name}] Handshake failed. Disconnecting client.");
-                            continue;
-                        }
-
-                        SystemOperator.Instance.HeartbeatManager.Register(client);
-                        SystemOperator.Instance.NetworkManager.ConnectedClients.Add(client);
-
-                        _ = HandleClientCommunication(client);
+                        await Warden.GreetNewClient(client);
                     }
 
                     await Task.Delay(10, CancelToken);

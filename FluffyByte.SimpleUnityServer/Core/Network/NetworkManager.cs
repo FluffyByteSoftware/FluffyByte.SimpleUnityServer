@@ -18,16 +18,14 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
 
         public ThreadSafeList<GameClient> ConnectedClients { get; private set; } = [];
 
-        public async Task AddConnectedClient(GameClient gClient)
+        public void AddConnectedClient(GameClient gClient)
         {
-            try
-            {
-                ConnectedClients.Add(gClient);
-            }
-            catch(Exception ex)
-            {
-                await Scribe.ErrorAsync(ex);
-            }
+            ConnectedClients.Add(gClient);
+        }
+
+        public void RemoveConnectedClient(GameClient client)
+        {
+            ConnectedClients.Remove(client);
         }
 
         public async Task PollUsers()
