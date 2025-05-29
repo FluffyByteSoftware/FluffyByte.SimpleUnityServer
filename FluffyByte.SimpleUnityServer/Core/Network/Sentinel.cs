@@ -62,11 +62,18 @@ namespace FluffyByte.SimpleUnityServer.Core.Network
                 {
                     if (TcpListener.Pending())
                     {
-                        
-                        Socket tcpSocket = await TcpListener.AcceptSocketAsync();
-                        GameClient client = new(tcpSocket);
 
-                        await Warden.GreetNewClient(client);
+                        try
+                        {
+                            Socket tcpSocket = await TcpListener.AcceptSocketAsync();
+                            GameClient client = new(tcpSocket);
+
+                            await Warden.GreetNewClient(client);
+                        }
+                        catch(Exception ex)
+                        {
+                            await Scribe.ErrorAsync(ex);
+                        }
                     }
 
                     await Task.Delay(10, CancelToken);
