@@ -54,10 +54,13 @@
                     if (_tickables.Count == 0)
                     {
                         await Scribe.WriteAsync("Nothing to tick.");
+                        
+                        if (CancelToken.IsCancellationRequested)
+                            return;
+
                         await Task.Delay(_tickIntervalMs, CancelToken);
                         continue; // skip to next iteration, don't return!
                     }
-
 
                     foreach (ITickable tickable in _tickables.ToArray())
                     {
@@ -76,6 +79,10 @@
                 }
 
                 await Scribe.WriteCleanAsync("Tick loop exited.");
+            }
+            catch(TaskCanceledException)
+            {
+                await Scribe.DebugAsync("Heartbeat interrupted by task cancellation.");
             }
             catch(Exception ex)
             {

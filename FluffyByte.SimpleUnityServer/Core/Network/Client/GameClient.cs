@@ -2,8 +2,10 @@
 {
 
     using System;
+    using System.Net;
     using System.Net.Sockets;
     using System.Threading.Tasks;
+    using FluffyByte.SimpleUnityServer.Enums;
     using FluffyByte.SimpleUnityServer.Game.Managers;
     using FluffyByte.SimpleUnityServer.Interfaces;
     using FluffyByte.SimpleUnityServer.Utilities;
@@ -14,6 +16,12 @@
         public int Id { get; }
 
         public const int TIMEOUT = 5;
+
+        public IPEndPoint? UdpEndPoint;
+
+        public byte[]? AuthChallenge { get; private set; }
+
+        public GameClientState State = GameClientState.New;
 
         public Guid Guid { get; private set; } = Guid.NewGuid();
         public string Name { get; private set; } = "Game Client";
@@ -67,8 +75,6 @@
 
                 return;
             }
-
-
         }
 
         public void UpdateResponseTime()
@@ -89,6 +95,11 @@
             SystemOperator.Instance.HeartbeatManager.Unregister(this);
 
             _requestedDisconnect = true;
+        }
+
+        public void SetAuthChallenge(byte[] bytes)
+        {
+            AuthChallenge = bytes;
         }
 
         private async Task Disconnect()

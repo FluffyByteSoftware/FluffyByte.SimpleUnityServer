@@ -9,6 +9,8 @@ namespace FluffyByte.SimpleUnityServer.Interfaces
 {
     internal interface IGameClient
     {
+        byte[]? AuthChallenge { get; }
+
         string Name { get; }
     }
 }

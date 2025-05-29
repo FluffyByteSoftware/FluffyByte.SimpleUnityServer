@@ -60,11 +60,12 @@ namespace FluffyByte.SimpleUnityServer.Game.Managers
             
             string[] lines = payload.Split(['\n', '\r'], StringSplitOptions.RemoveEmptyEntries);
 
-            foreach (var line in lines)
+            foreach (string line in lines)
             {
                 try
                 {
-                    var obj = ServerGameObject.Parse(line); // You must implement Parse as shown before
+                    ServerGameObject obj = ServerGameObject.Parse(line); // You must implement Parse as shown before
+
                     result.Add(obj);
                 }
                 catch (Exception ex)
